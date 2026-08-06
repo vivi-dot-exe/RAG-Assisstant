@@ -35,11 +35,21 @@ class HybridRetriever:
         rrf_scores: Dict[str, float] = {}
         doc_map: Dict[str, Document] = {}
 
+        # Check if query mentions a specific filename
+        query_lower = query.lower()
+        
         # 1. RRF Scoring for Dense Results
         for rank, doc in enumerate(dense_docs, start=1):
             chunk_id = doc.metadata.get("chunk_id", str(hash(doc.page_content)))
             doc_map[chunk_id] = doc
             score = 1.0 / (self.rrf_k + rank)
+            
+            # Boost if query explicitly mentions doc file_name
+            fname = str(doc.metadata.get("file_name", "")).lower()
+            fname_stem = fname.replace(".pdf", "")
+            if fname and (fname in query_lower or fname_stem in query_lower):
+                score += 1.0
+                
             rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + score
 
         # 2. RRF Scoring for Sparse Results
@@ -47,6 +57,12 @@ class HybridRetriever:
             chunk_id = doc.metadata.get("chunk_id", str(hash(doc.page_content)))
             doc_map[chunk_id] = doc
             score = 1.0 / (self.rrf_k + rank)
+            
+            fname = str(doc.metadata.get("file_name", "")).lower()
+            fname_stem = fname.replace(".pdf", "")
+            if fname and (fname in query_lower or fname_stem in query_lower):
+                score += 1.0
+                
             rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + score
 
         # 3. Sort by RRF score descending and take top final_k (15)

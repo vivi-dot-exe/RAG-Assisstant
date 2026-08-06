@@ -74,21 +74,74 @@ class RAGGenerator:
         )
         
         api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            print("OPENAI_API_KEY missing. Returning offline context fallback generator.")
-            def mock_stream():
-                yield f"OPENAI_API_KEY is missing. Here is the strict context prepared for query '{query}':\n\n{formatted_context}"
-            return mock_stream(), structured_citations
-
-        llm = ChatOpenAI(
-            model=self.model_name,
-            temperature=self.temperature,
-            openai_api_key=api_key,
-            streaming=True
-        )
+        provider = (os.environ.get("LLM_PROVIDER") or "openai").lower()
         
-        stream_generator = (chunk.content for chunk in llm.stream(formatted_prompt))
-        return stream_generator, structured_citations
+        if (api_key and not api_key.startswith("sk-placeholder")) or provider in ["ollama", "local"]:
+            try:
+                from llm_factory import get_llm
+                llm = get_llm(provider=provider, model_name=self.model_name, temperature=self.temperature, streaming=True)
+                stream_generator = (chunk.content for chunk in llm.stream(formatted_prompt))
+                return stream_generator, structured_citations
+            except Exception as e:
+                print(f"Notice: LLM generation issue ({e}). Using direct document context synthesis.")
+
+        def offline_stream():
+            if not chunks:
+                yield "I cannot answer this question based on the provided context."
+                return
+                
+            query_lower = query.lower()
+            is_summary = any(kw in query_lower for kw in ["summarize", "summary", "overview", "explain", "about"])
+            
+            doc_sources = {}
+            for d in chunks:
+                fname = d.metadata.get("file_name", "Document.pdf")
+                pnum = d.metadata.get("page_number", 1)
+                if fname not in doc_sources:
+                    doc_sources[fname] = []
+                if pnum not in doc_sources[fname]:
+                    doc_sources[fname].append(pnum)
+                    
+            files_str = ", ".join(doc_sources.keys())
+            
+            if is_summary:
+                yield f"### 📑 Summary of {files_str}\n\n"
+            else:
+                yield f"**Answer based on {files_str}:**\n\n"
+                
+            topics = []
+            seen_headers = set()
+            
+            for doc in chunks[:4]:
+                fname = doc.metadata.get("file_name", "Document.pdf")
+                pnum = doc.metadata.get("page_number", 1)
+                raw_text = doc.page_content.strip()
+                
+                # Filter out header noise lines
+                lines = [l.strip() for l in raw_text.split('\n') if l.strip() and not l.strip().startswith(('Page ', 'Chapter ', 'http', 'www', 'Figure', 'Table')) and len(l.strip()) > 10]
+                if not lines:
+                    continue
+                    
+                body_text = " ".join(lines)
+                key_prefix = body_text[:60]
+                if key_prefix in seen_headers:
+                    continue
+                seen_headers.add(key_prefix)
+                
+                topics.append((fname, pnum, body_text))
+                
+            if not topics:
+                yield "No detailed context found in the selected documents."
+                return
+                
+            for idx, (fname, pnum, body) in enumerate(topics, 1):
+                clean_body = body[:400] + ("..." if len(body) > 400 else "")
+                if is_summary:
+                    yield f"**Key Insight {idx}**: {clean_body} `[File: {fname}, Page {pnum}]`\n\n"
+                else:
+                    yield f"• {clean_body} `[File: {fname}, Page {pnum}]`\n\n"
+
+        return offline_stream(), structured_citations
 
 def main():
     parser = argparse.ArgumentParser(description="RAG Generation Chain CLI test.")

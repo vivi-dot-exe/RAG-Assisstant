@@ -59,12 +59,6 @@ class HybridIndexer:
         print(f"Indexing {len(chunks)} chunks into ChromaDB & BM25Okapi...")
 
         # 1. Dense Storage (ChromaDB)
-        if os.path.exists(self.db_dir):
-            try:
-                shutil.rmtree(self.db_dir)
-            except Exception as e:
-                print(f"Notice: Using existing directory '{self.db_dir}' ({e}). Updating vector collection...")
-
         try:
             self.vector_store = Chroma.from_documents(
                 documents=chunks,

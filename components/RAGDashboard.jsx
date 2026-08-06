@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Sparkles,
   UploadCloud,
@@ -8,11 +8,11 @@ import {
   X,
   Settings,
   ShieldCheck,
-  CheckCircle2,
   Trash2,
-  Sliders,
-  Globe
+  Sliders
 } from 'lucide-react';
+
+const API_BASE = 'http://127.0.0.1:8000';
 
 export default function RAGDashboard() {
   // Model & Settings Modal State
@@ -22,10 +22,9 @@ export default function RAGDashboard() {
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
 
   // Documents State
-  const [documents, setDocuments] = useState([
-    { id: '1', name: 'sample_doc.pdf', pages: 3, size: '1.2 MB' },
-    { id: '2', name: 'resume_ats_verified.pdf', pages: 1, size: '0.8 MB' }
-  ]);
+  const [documents, setDocuments] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Chat State
   const [query, setQuery] = useState('');
@@ -41,38 +40,165 @@ export default function RAGDashboard() {
 
   const hasConversation = messages.length > 1;
 
+  // Fetch documents from FastAPI
+  const fetchDocuments = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/documents`);
+      if (res.ok) {
+        const data = await res.json();
+        setDocuments(data.documents || []);
+      }
+    } catch (error) {
+      console.error('Error fetching documents from backend:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
+
   // Handle Remove Document
-  const handleRemoveDoc = (id) => {
-    setDocuments((prev) => prev.filter((doc) => doc.id !== id));
+  const handleRemoveDoc = async (filename) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/documents/${encodeURIComponent(filename)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        await fetchDocuments();
+      }
+    } catch (error) {
+      console.error('Error deleting document:', error);
+    }
+  };
+
+  // Handle File Upload
+  const handleFileUpload = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/upload`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        await fetchDocuments();
+        alert(data.message || 'Indexed successfully!');
+      } else {
+        const err = await res.json();
+        alert(err.detail || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      alert('Failed to connect to FastAPI backend at http://localhost:8000.');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Save Config
+  const handleSaveSettings = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider,
+          apiKey,
+          model: provider === 'openai' ? 'gpt-4o' : 'llama3',
+          ollamaUrl
+        })
+      });
+      if (res.ok) {
+        setShowSettingsModal(false);
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    }
   };
 
   // Handle Send Question
-  const handleSendMessage = (e) => {
+  const handleSendMessage = async (e) => {
     e?.preventDefault();
-    if (!query.trim()) return;
+    if (!query.trim() || isProcessing) return;
 
     const userMsg = { id: `u_${Date.now()}`, role: 'user', content: query };
     setMessages((prev) => [...prev, userMsg]);
+    const currentQuery = query;
     setQuery('');
     setIsProcessing(true);
 
-    setTimeout(() => {
-      const botMsg = {
-        id: `b_${Date.now()}`,
-        role: 'assistant',
-        content: `Based on your documents, Retrieval-Augmented Generation (RAG) fuses dense vector embeddings with sparse keyword search to deliver precise context to LLMs like ${provider === 'openai' ? 'GPT-4o' : 'Llama3'}.`,
-        citations: [
-          { file_name: 'sample_doc.pdf', page_number: 1 },
-          { file_name: 'sample_doc.pdf', page_number: 2 }
-        ]
-      };
-      setMessages((prev) => [...prev, botMsg]);
+    try {
+      const res = await fetch(`${API_BASE}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: currentQuery,
+          provider: provider,
+          model: provider === 'openai' ? 'gpt-4o' : 'llama3',
+          top_n: 4
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const botMsg = {
+          id: `b_${Date.now()}`,
+          role: 'assistant',
+          content: data.content,
+          citations: data.citations || []
+        };
+        setMessages((prev) => [...prev, botMsg]);
+      } else {
+        const err = await res.json();
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `b_${Date.now()}`,
+            role: 'assistant',
+            content: `Error: ${err.detail || 'Failed to process RAG query.'}`,
+            citations: []
+          }
+        ]);
+      }
+    } catch (error) {
+      console.error('Error querying backend:', error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `b_${Date.now()}`,
+          role: 'assistant',
+          content: 'Error connecting to FastAPI backend. Please check app.py.',
+          citations: []
+        }
+      ]);
+    } finally {
       setIsProcessing(false);
-    }, 1200);
+    }
   };
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-gradient-to-br from-purple-50 via-fuchsia-50/40 to-indigo-50/50 text-purple-950 font-sans">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        accept=".pdf"
+        multiple
+        className="hidden"
+      />
+
       {/* ========================================================================= */}
       {/* STREAMLINED SIDEBAR (Knowledge Base & Uploads Only)                       */}
       {/* ========================================================================= */}
@@ -94,10 +220,15 @@ export default function RAGDashboard() {
             <h3 className="text-xs font-bold text-purple-900 uppercase tracking-wider px-1">
               Add Documents
             </h3>
-            <div className="border-2 border-dashed border-purple-200/80 rounded-2xl p-4 text-center bg-purple-50/30 hover:bg-purple-50/70 transition-all cursor-pointer group">
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-purple-200/80 rounded-2xl p-4 text-center bg-purple-50/30 hover:bg-purple-50/70 transition-all cursor-pointer group"
+            >
               <UploadCloud className="h-7 w-7 text-purple-500 group-hover:scale-110 transition-transform mx-auto mb-1.5" />
-              <p className="text-xs font-semibold text-purple-900">Upload PDF Files</p>
-              <p className="text-[10px] text-purple-500 mt-0.5">Drag and drop or click</p>
+              <p className="text-xs font-semibold text-purple-900">
+                {isUploading ? 'Indexing PDFs...' : 'Upload PDF Files'}
+              </p>
+              <p className="text-[10px] text-purple-500 mt-0.5">Click or drag and drop</p>
             </div>
           </div>
 
@@ -113,7 +244,7 @@ export default function RAGDashboard() {
             <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
               {documents.map((doc) => (
                 <div
-                  key={doc.id}
+                  key={doc.name}
                   className="flex items-center justify-between p-3 rounded-xl border border-purple-100 bg-white/90 shadow-2xs hover:border-purple-200 transition-colors"
                 >
                   <div className="flex items-center space-x-2.5 overflow-hidden">
@@ -124,7 +255,7 @@ export default function RAGDashboard() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleRemoveDoc(doc.id)}
+                    onClick={() => handleRemoveDoc(doc.name)}
                     className="p-1 rounded-lg text-purple-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                     title="Remove document"
                   >
@@ -144,7 +275,7 @@ export default function RAGDashboard() {
         <div className="pt-3 border-t border-purple-100 flex items-center justify-between">
           <div className="flex items-center space-x-2 text-xs font-semibold text-purple-800">
             <ShieldCheck className="h-4 w-4 text-emerald-600" />
-            <span>Ready</span>
+            <span>FastAPI Connected</span>
           </div>
 
           <button
@@ -178,9 +309,6 @@ export default function RAGDashboard() {
             >
               <Settings className="h-4 w-4" />
             </button>
-            <button className="px-4 py-2 rounded-xl bg-purple-950 text-white text-xs font-semibold hover:bg-purple-900 transition-all shadow-md shadow-purple-950/10">
-              Deploy
-            </button>
           </div>
         </header>
 
@@ -213,7 +341,7 @@ export default function RAGDashboard() {
                       : 'bg-white/90 text-purple-950 border-purple-100/90'
                   }`}
                 >
-                  <div className="text-sm leading-relaxed">{msg.content}</div>
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
 
                   {/* Citation Badges */}
                   {msg.citations && msg.citations.length > 0 && (
@@ -254,6 +382,7 @@ export default function RAGDashboard() {
           >
             <button
               type="button"
+              onClick={() => fileInputRef.current?.click()}
               className="p-2 rounded-full text-purple-500 hover:bg-purple-100/60 hover:text-purple-800 transition-colors"
               title="Attach document"
             >
@@ -336,7 +465,7 @@ export default function RAGDashboard() {
             </div>
 
             <button
-              onClick={() => setShowSettingsModal(false)}
+              onClick={handleSaveSettings}
               className="w-full py-2.5 rounded-xl bg-purple-950 text-white font-semibold text-xs hover:bg-purple-900 transition-all shadow-md shadow-purple-950/10"
             >
               Save Settings

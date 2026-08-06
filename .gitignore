@@ -20,9 +20,15 @@ ragas_eval_results.json
 .env
 .env.local
 
+# Node / Next.js
+node_modules/
+.next/
+out/
+
 # OS / IDE metadata
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
 *.log
+
