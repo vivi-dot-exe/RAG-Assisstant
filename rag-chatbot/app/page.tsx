@@ -53,42 +53,18 @@ type AttachedFile = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000'
 
-
 const INITIAL_HISTORY: ChatHistorySession[] = [
   {
-    id: 'h1',
-    title: 'Summarize ipsem5notes.pdf',
+    id: 'session_default',
+    title: 'Welcome to Cortex RAG',
     timestamp: 'Just now',
     messages: [
       {
-        id: 1,
+        id: 'msg_welcome',
         role: 'assistant',
         content: 'Hello! I am Cortex, your document intelligence assistant. Upload your PDF files or ask questions directly.',
         sources: []
       }
-    ]
-  },
-  {
-    id: 'h2',
-    title: 'Module 2.pdf Network Analysis',
-    timestamp: '1 hour ago',
-    messages: [
-      { id: 101, role: 'user', content: 'What is classful addressing in Module 2?' },
-      {
-        id: 102,
-        role: 'assistant',
-        content: 'Classful addressing divides 32-bit IPv4 addresses into sub-classes: Class A, Class B, and Class C.',
-        sources: ['Module 2.pdf | Page 136']
-      }
-    ]
-  },
-  {
-    id: 'h3',
-    title: 'AI Concepts and Applications',
-    timestamp: 'Yesterday',
-    messages: [
-      { id: 201, role: 'user', content: 'Summarize AI Agents vs Assistants' },
-      { id: 202, role: 'assistant', content: 'AI Agents act autonomously to perform multi-step workflows, while AI Assistants interact responsively to direct human prompts.', sources: ['AI Agents and AI Assistants.pdf | Page 1'] }
     ]
   }
 ]
@@ -102,7 +78,7 @@ function formatFileSize(bytes: number): string {
 export default function Page() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [historyList, setHistoryList] = useState<ChatHistorySession[]>(INITIAL_HISTORY)
-  const [activeSessionId, setActiveSessionId] = useState<string>('h1')
+  const [activeSessionId, setActiveSessionId] = useState<string>('session_default')
   const [prompt, setPrompt] = useState('')
   const [messages, setMessages] = useState<Message[]>(INITIAL_HISTORY[0].messages)
   const [isRetrieving, setIsRetrieving] = useState(false)
@@ -115,7 +91,7 @@ export default function Page() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadMenuRef = useRef<HTMLDivElement>(null)
 
-  // Toast Notification State (Only for errors or explicit settings save)
+  // Toast Notification State
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -142,8 +118,29 @@ export default function Page() {
     }
   }
 
+  // Fetch persistent Chat History from SQLite Backend DB
+  const fetchHistory = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/history`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.sessions && data.sessions.length > 0) {
+          setHistoryList(data.sessions)
+          setActiveSessionId(data.sessions[0].id)
+          setMessages(data.sessions[0].messages || [])
+        } else {
+          // Initialize first default session in SQLite database if empty
+          await handleNewChat()
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch chat history from database:', error)
+    }
+  }
+
   useEffect(() => {
     fetchDocCount()
+    fetchHistory()
   }, [])
 
   // Close upload popup menu when clicking outside
@@ -157,27 +154,47 @@ export default function Page() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Start New Chat Session
-  const handleNewChat = () => {
-    const newSessionId = `chat_${Date.now()}`
+  // Start New Chat Session (Persisted to SQLite)
+  const handleNewChat = async () => {
+    const newSessionId = `session_${Date.now()}`
+    const welcomeMsg: Message = {
+      id: `msg_${Date.now()}`,
+      role: 'assistant',
+      content: 'Hello! I am Cortex, your document intelligence assistant. Upload PDF files or ask any questions directly.',
+      sources: []
+    }
     const newSession: ChatHistorySession = {
       id: newSessionId,
       title: 'New conversation',
       timestamp: 'Just now',
-      messages: [
-        {
-          id: 1,
-          role: 'assistant',
-          content: 'Hello! I am Cortex, your document intelligence assistant. Upload PDF files or ask any questions directly.',
-          sources: []
-        }
-      ]
+      messages: [welcomeMsg]
     }
     setHistoryList((prev) => [newSession, ...prev])
     setActiveSessionId(newSessionId)
     setMessages(newSession.messages)
     setPrompt('')
     setAttachedFiles([])
+
+    // Save Session & Welcome Message in SQLite Database
+    try {
+      await fetch(`${API_BASE}/api/history/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: newSession.id, title: newSession.title })
+      })
+      await fetch(`${API_BASE}/api/history/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: newSession.id,
+          role: 'assistant',
+          content: welcomeMsg.content,
+          id: String(welcomeMsg.id)
+        })
+      })
+    } catch (err) {
+      console.error('Error saving new session to DB:', err)
+    }
   }
 
   // Select Conversation from History
@@ -188,12 +205,17 @@ export default function Page() {
     setAttachedFiles([])
   }
 
-  // Delete History Item
-  const handleDeleteSession = (sessionId: string, e: React.MouseEvent) => {
+  // Delete History Item from SQLite Database
+  const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     setHistoryList((prev) => prev.filter((s) => s.id !== sessionId))
     if (activeSessionId === sessionId) {
       handleNewChat()
+    }
+    try {
+      await fetch(`${API_BASE}/api/history/session/${sessionId}`, { method: 'DELETE' })
+    } catch (err) {
+      console.error('Error deleting session from DB:', err)
     }
   }
 
@@ -263,9 +285,7 @@ export default function Page() {
     window.open(fileUrl, '_blank')
   }
 
-
   // Submit Prompt & Upload Attached Files
-
   async function submitPrompt() {
     const trimmed = prompt.trim()
     if ((!trimmed && attachedFiles.length === 0) || isRetrieving) return
@@ -274,7 +294,7 @@ export default function Page() {
 
     const attachedFileNames = attachedFiles.map((f) => f.name)
 
-    // 1. Upload attached files if any (silent indexing, no toast alert)
+    // 1. Upload attached files if any (silent indexing)
     if (attachedFiles.length > 0) {
       setIsUploading(true)
       const formData = new FormData()
@@ -297,30 +317,55 @@ export default function Page() {
 
     const userQueryText = trimmed || (attachedFileNames.length > 0 ? `Summarize ${attachedFileNames.join(', ')}` : '')
     
-    // Build user message including attached file badges
+    // Build user message object
+    const userMsgId = `msg_${Date.now()}`
     const userMessage: Message = {
-      id: Date.now(),
+      id: userMsgId,
       role: 'user',
       content: userQueryText,
       attachments: attachedFiles.map((f) => ({ name: f.name, size: f.size }))
     }
 
-    // Update active conversation & history
+    // Determine session title
+    const currentSession = historyList.find((s) => s.id === activeSessionId)
+    const sessionTitle = currentSession?.title === 'New conversation' ? userQueryText.slice(0, 32) : (currentSession?.title || 'Chat Session')
+
+    // Update state
     const updatedMessages = [...messages, userMessage]
     setMessages(updatedMessages)
     setPrompt('')
     setAttachedFiles([])
 
-    // Update history session title if it's new
     setHistoryList((prev) =>
       prev.map((session) => {
         if (session.id === activeSessionId) {
-          const newTitle = session.title === 'New conversation' ? userQueryText.slice(0, 32) : session.title
-          return { ...session, title: newTitle, messages: updatedMessages }
+          return { ...session, title: sessionTitle, messages: updatedMessages }
         }
         return session
       })
     )
+
+    // Persist User Message & Session Title to SQLite DB
+    try {
+      await fetch(`${API_BASE}/api/history/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: activeSessionId, title: sessionTitle })
+      })
+      await fetch(`${API_BASE}/api/history/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: activeSessionId,
+          role: 'user',
+          content: userQueryText,
+          attachments: userMessage.attachments,
+          id: String(userMsgId)
+        })
+      })
+    } catch (err) {
+      console.error('Error persisting user message to SQLite DB:', err)
+    }
 
     // 2. Query FastAPI Backend with attached_files restriction
     try {
@@ -342,8 +387,9 @@ export default function Page() {
           (cite: any) => `${cite.file_name} | Page ${cite.page_number}`
         )
 
+        const botMsgId = `msg_${Date.now() + 1}`
         const botMessage: Message = {
-          id: Date.now() + 1,
+          id: botMsgId,
           role: 'assistant',
           content: data.content,
           sources: sources
@@ -357,10 +403,27 @@ export default function Page() {
               : session
           )
         )
+
+        // Persist Bot Response to SQLite DB
+        try {
+          await fetch(`${API_BASE}/api/history/message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              session_id: activeSessionId,
+              role: 'assistant',
+              content: botMessage.content,
+              sources: sources,
+              id: String(botMsgId)
+            })
+          })
+        } catch (err) {
+          console.error('Error persisting bot message to SQLite DB:', err)
+        }
       } else {
         const err = await res.json()
         const errorMessage: Message = {
-          id: Date.now() + 1,
+          id: `msg_err_${Date.now()}`,
           role: 'assistant',
           content: `Error: ${err.detail || 'Failed to process RAG response.'}`
         }
@@ -369,7 +432,7 @@ export default function Page() {
     } catch (error) {
       console.error('Chat API Error:', error)
       const errorConnMessage: Message = {
-        id: Date.now() + 1,
+        id: `msg_err_${Date.now()}`,
         role: 'assistant',
         content: 'Error connecting to FastAPI backend. Ensure app.py is running on http://127.0.0.1:8000.'
       }
@@ -550,7 +613,6 @@ export default function Page() {
                 <article key={message.id} className={`message-row flex ${message.role === 'user' ? 'message-user justify-end' : 'message-assistant'}`}>
                   {message.role === 'assistant' && <span className="assistant-avatar"><Sparkles /></span>}
                   <div className={`message-content ${message.role === 'user' ? 'user-bubble' : 'assistant-bubble'}`}>
-
 
                     {/* Render Attached Document Cards inside User Chat Bubble */}
                     {message.attachments && message.attachments.length > 0 && (

@@ -13,7 +13,9 @@ __pycache__/
 # Local databases & uploaded source documents
 chroma_db/
 source_documents/
+chat_history.db
 *.pdf
+
 ragas_eval_results.json
 
 # Environment variables & secrets

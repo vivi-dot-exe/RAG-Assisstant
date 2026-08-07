@@ -68,6 +68,10 @@ def get_pdf_page_count(filepath: str) -> int:
     except Exception:
         return 1
 
+from history_db import init_db, get_all_sessions, create_or_update_session, add_message_to_session, delete_session_db
+
+init_db()
+
 # Request Schemas
 class ChatRequest(BaseModel):
     query: str
@@ -83,6 +87,18 @@ class ConfigRequest(BaseModel):
     model: Optional[str] = None
     ollamaUrl: Optional[str] = "http://localhost:11434"
 
+class SessionRequest(BaseModel):
+    id: str
+    title: str
+
+class MessageRequest(BaseModel):
+    session_id: str
+    role: str
+    content: str
+    attachments: Optional[List[Dict[str, Any]]] = None
+    sources: Optional[List[str]] = None
+    id: Optional[str] = None
+
 @app.get("/")
 def read_root():
     return {
@@ -94,6 +110,34 @@ def read_root():
 @app.get("/api/health")
 def health_check():
     return {"status": "healthy"}
+
+@app.get("/api/history")
+def get_chat_history():
+    sessions = get_all_sessions()
+    return {"sessions": sessions}
+
+@app.post("/api/history/session")
+def save_chat_session(req: SessionRequest):
+    res = create_or_update_session(req.id, req.title)
+    return {"status": "success", "session": res}
+
+@app.post("/api/history/message")
+def save_chat_message(req: MessageRequest):
+    res = add_message_to_session(
+        session_id=req.session_id,
+        role=req.role,
+        content=req.content,
+        attachments=req.attachments,
+        sources=req.sources,
+        msg_id=req.id
+    )
+    return {"status": "success", "message": res}
+
+@app.delete("/api/history/session/{session_id}")
+def delete_chat_session(session_id: str):
+    delete_session_db(session_id)
+    return {"status": "success", "message": f"Session {session_id} deleted"}
+
 
 @app.post("/api/config")
 def update_config(config: ConfigRequest):
