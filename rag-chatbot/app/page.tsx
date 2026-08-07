@@ -529,19 +529,16 @@ export default function Page() {
               {historyList.map((session) => (
                 <div
                   key={session.id}
-                  className={`document-row flex items-center gap-2.5 text-left cursor-pointer group ${
+                  className={`document-row flex items-center justify-between text-left cursor-pointer group ${
                     activeSessionId === session.id ? 'document-selected' : ''
                   }`}
                   onClick={() => handleSelectSession(session)}
                 >
-                  <MessageSquare className="h-3.5 w-3.5 text-purple-400 shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="document-name block truncate text-xs font-medium">{session.title}</span>
-                  </span>
+                  <span className="document-name truncate pr-2">{session.title}</span>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    className="h-5 w-5 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity"
+                    className="h-5 w-5 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity shrink-0"
                     onClick={(e) => handleDeleteSession(session.id, e)}
                     title="Delete chat"
                   >
@@ -549,6 +546,7 @@ export default function Page() {
                   </Button>
                 </div>
               ))}
+
             </div>
           )}
 
