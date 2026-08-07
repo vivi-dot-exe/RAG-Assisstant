@@ -105,41 +105,43 @@ class RAGGenerator:
             files_str = ", ".join(doc_sources.keys())
             
             if is_summary:
-                yield f"### 📑 Summary of {files_str}\n\n"
+                yield f"### 📘 Executive Summary: {files_str}\n\n"
+                
+                extracted_paragraphs = []
+                for doc in chunks[:5]:
+                    fname = doc.metadata.get("file_name", "Document.pdf")
+                    pnum = doc.metadata.get("page_number", 1)
+                    raw_text = doc.page_content.replace("•", "").strip()
+                    lines = [l.strip() for l in raw_text.split('\n') if l.strip() and not l.strip().startswith(('Page ', 'Chapter ', 'http', 'www', 'Figure', 'Table')) and len(l.strip()) > 12]
+                    if lines:
+                        clean_text = " ".join(lines)
+                        extracted_paragraphs.append((fname, pnum, clean_text))
+                        
+                if not extracted_paragraphs:
+                    yield "No detailed text context found in the selected documents."
+                    return
+
+                # Executive overview section
+                first_text = extracted_paragraphs[0][2]
+                overview = first_text[:380] + ("..." if len(first_text) > 380 else "")
+                yield f"**Overview:**\n{overview}\n\n"
+                yield "**Core Concepts & Topics Covered:**\n\n"
+                
+                for idx, (fname, pnum, full_text) in enumerate(extracted_paragraphs[:4], 1):
+                    # Clean snippet
+                    snippet = full_text[:320] + ("..." if len(full_text) > 320 else "")
+                    yield f"**{idx}. Core Topic [File: {fname}, Page {pnum}]**\n{snippet}\n\n"
             else:
-                yield f"**Answer based on {files_str}:**\n\n"
-                
-            topics = []
-            seen_headers = set()
-            
-            for doc in chunks[:4]:
-                fname = doc.metadata.get("file_name", "Document.pdf")
-                pnum = doc.metadata.get("page_number", 1)
-                raw_text = doc.page_content.strip()
-                
-                # Filter out header noise lines
-                lines = [l.strip() for l in raw_text.split('\n') if l.strip() and not l.strip().startswith(('Page ', 'Chapter ', 'http', 'www', 'Figure', 'Table')) and len(l.strip()) > 10]
-                if not lines:
-                    continue
-                    
-                body_text = " ".join(lines)
-                key_prefix = body_text[:60]
-                if key_prefix in seen_headers:
-                    continue
-                seen_headers.add(key_prefix)
-                
-                topics.append((fname, pnum, body_text))
-                
-            if not topics:
-                yield "No detailed context found in the selected documents."
-                return
-                
-            for idx, (fname, pnum, body) in enumerate(topics, 1):
-                clean_body = body[:400] + ("..." if len(body) > 400 else "")
-                if is_summary:
-                    yield f"**Key Insight {idx}**: {clean_body} `[File: {fname}, Page {pnum}]`\n\n"
-                else:
-                    yield f"• {clean_body} `[File: {fname}, Page {pnum}]`\n\n"
+                yield f"### 💡 Answer based on {files_str}\n\n"
+                for doc in chunks[:4]:
+                    fname = doc.metadata.get("file_name", "Document.pdf")
+                    pnum = doc.metadata.get("page_number", 1)
+                    raw_text = doc.page_content.replace("•", "").strip()
+                    lines = [l.strip() for l in raw_text.split('\n') if l.strip() and len(l.strip()) > 12]
+                    if lines:
+                        clean_text = " ".join(lines)
+                        yield f"• {clean_text[:350]}... `[File: {fname}, Page {pnum}]`\n\n"
+
 
         return offline_stream(), structured_citations
 

@@ -250,7 +250,21 @@ export default function Page() {
     }
   }
 
+  // Open PDF file in new browser tab
+  const handleOpenDocument = (sourceStr: string) => {
+    const parts = sourceStr.split('|')
+    const fileName = parts[0].trim()
+    let pageNum = ''
+    if (parts.length > 1) {
+      const pageMatch = parts[1].match(/\d+/)
+      if (pageMatch) pageNum = `#page=${pageMatch[0]}`
+    }
+    const fileUrl = `${API_BASE}/api/documents/${encodeURIComponent(fileName)}/file${pageNum}`
+    window.open(fileUrl, '_blank')
+  }
+
   // Submit Prompt & Upload Attached Files
+
   async function submitPrompt() {
     const trimmed = prompt.trim()
     if ((!trimmed && attachedFiles.length === 0) || isRetrieving) return
@@ -535,15 +549,22 @@ export default function Page() {
                 <article key={message.id} className={`message-row flex ${message.role === 'user' ? 'message-user justify-end' : 'message-assistant'}`}>
                   {message.role === 'assistant' && <span className="assistant-avatar"><Sparkles /></span>}
                   <div className={`message-content ${message.role === 'user' ? 'user-bubble' : 'assistant-bubble'}`}>
-                    
+
+
                     {/* Render Attached Document Cards inside User Chat Bubble */}
                     {message.attachments && message.attachments.length > 0 && (
                       <div className="flex flex-wrap gap-2 mb-2">
                         {message.attachments.map((att, aIdx) => (
-                          <div key={aIdx} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/15 text-purple-100 border border-white/20 text-xs font-semibold shadow-xs">
+                          <button
+                            key={aIdx}
+                            type="button"
+                            onClick={() => handleOpenDocument(att.name)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-purple-100 border border-white/20 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                            title="Click to view PDF"
+                          >
                             <FileText className="h-3.5 w-3.5 text-purple-300" />
                             <span>{att.name}</span>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     )}
@@ -553,12 +574,19 @@ export default function Page() {
                     {message.sources && message.sources.length > 0 && (
                       <div className="source-list flex flex-wrap gap-2 mt-3 pt-2 border-t border-purple-200/20" aria-label="Response sources">
                         {message.sources.map((source, sIdx) => (
-                          <span className="source-chip inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-purple-200" key={`${message.id}-${sIdx}`}>
+                          <button
+                            key={`${message.id}-${sIdx}`}
+                            type="button"
+                            onClick={() => handleOpenDocument(source)}
+                            className="source-chip inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-purple-200 transition-colors cursor-pointer"
+                            title="Click to open PDF"
+                          >
                             <FileText className="h-3 w-3 text-purple-400" /> {source}
-                          </span>
+                          </button>
                         ))}
                       </div>
                     )}
+
                   </div>
                 </article>
               ))}

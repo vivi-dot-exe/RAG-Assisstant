@@ -130,6 +130,22 @@ def list_documents():
         })
     return {"documents": docs}
 
+@app.get("/api/documents/{filename}")
+def get_document_by_name(filename: str):
+    filepath = os.path.join(SOURCE_DIR, filename)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return FileResponse(filepath, media_type="application/pdf", filename=filename)
+
+@app.get("/api/documents/{filename}/file")
+def get_document_file(filename: str):
+    filepath = os.path.join(SOURCE_DIR, filename)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Document file not found")
+    return FileResponse(filepath, media_type="application/pdf", filename=filename)
+
+
+
 @app.delete("/api/documents/{filename}")
 def delete_document(filename: str):
     filepath = os.path.join(SOURCE_DIR, filename)
