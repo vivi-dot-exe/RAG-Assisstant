@@ -91,7 +91,8 @@ class RAGGenerator:
                 return
                 
             query_lower = query.lower()
-            is_summary = any(kw in query_lower for kw in ["summarize", "summary", "overview", "explain", "about"])
+            is_one_para = any(kw in query_lower for kw in ["one para", "1 para", "one paragraph", "1 paragraph", "single paragraph", "brief summary", "short summary", "in 1 para"])
+            is_summary = any(kw in query_lower for kw in ["summarize", "summary", "overview", "explain", "about"]) or is_one_para
             
             doc_sources = {}
             for d in chunks:
@@ -104,31 +105,38 @@ class RAGGenerator:
                     
             files_str = ", ".join(doc_sources.keys())
             
+            extracted_paragraphs = []
+            for doc in chunks[:5]:
+                fname = doc.metadata.get("file_name", "Document.pdf")
+                pnum = doc.metadata.get("page_number", 1)
+                raw_text = doc.page_content.replace("•", "").strip()
+                lines = [l.strip() for l in raw_text.split('\n') if l.strip() and not l.strip().startswith(('Page ', 'Chapter ', 'http', 'www', 'Figure', 'Table')) and len(l.strip()) > 12]
+                if lines:
+                    clean_text = " ".join(lines)
+                    extracted_paragraphs.append((fname, pnum, clean_text))
+                    
+            if not extracted_paragraphs:
+                yield "No detailed text context found in the selected documents."
+                return
+
+            if is_one_para:
+                combined = " ".join([p[2] for p in extracted_paragraphs[:3]])
+                combined = " ".join(combined.split())
+                if len(combined) > 480:
+                    combined = combined[:480] + "..."
+                
+                citations_str = ", ".join([f"{p[0]} (Page {p[1]})" for p in extracted_paragraphs[:2]])
+                yield f"**Summary ({files_str}):**\n\n{combined}\n\n*Sources: {citations_str}*"
+                return
+
             if is_summary:
                 yield f"### 📘 Executive Summary: {files_str}\n\n"
-                
-                extracted_paragraphs = []
-                for doc in chunks[:5]:
-                    fname = doc.metadata.get("file_name", "Document.pdf")
-                    pnum = doc.metadata.get("page_number", 1)
-                    raw_text = doc.page_content.replace("•", "").strip()
-                    lines = [l.strip() for l in raw_text.split('\n') if l.strip() and not l.strip().startswith(('Page ', 'Chapter ', 'http', 'www', 'Figure', 'Table')) and len(l.strip()) > 12]
-                    if lines:
-                        clean_text = " ".join(lines)
-                        extracted_paragraphs.append((fname, pnum, clean_text))
-                        
-                if not extracted_paragraphs:
-                    yield "No detailed text context found in the selected documents."
-                    return
-
-                # Executive overview section
                 first_text = extracted_paragraphs[0][2]
                 overview = first_text[:380] + ("..." if len(first_text) > 380 else "")
                 yield f"**Overview:**\n{overview}\n\n"
                 yield "**Core Concepts & Topics Covered:**\n\n"
                 
                 for idx, (fname, pnum, full_text) in enumerate(extracted_paragraphs[:4], 1):
-                    # Clean snippet
                     snippet = full_text[:320] + ("..." if len(full_text) > 320 else "")
                     yield f"**{idx}. Core Topic [File: {fname}, Page {pnum}]**\n{snippet}\n\n"
             else:
@@ -141,6 +149,7 @@ class RAGGenerator:
                     if lines:
                         clean_text = " ".join(lines)
                         yield f"• {clean_text[:350]}... `[File: {fname}, Page {pnum}]`\n\n"
+
 
 
         return offline_stream(), structured_citations

@@ -1,10 +1,13 @@
 import os
 import shutil
 import json
+from urllib.parse import unquote
 from typing import List, Optional, Dict, Any
+
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+
 from pydantic import BaseModel
 import uvicorn
 
@@ -130,19 +133,30 @@ def list_documents():
         })
     return {"documents": docs}
 
-@app.get("/api/documents/{filename}")
-def get_document_by_name(filename: str):
-    filepath = os.path.join(SOURCE_DIR, filename)
+@app.get("/api/view-file/{filename}")
+def view_document_file(filename: str):
+    clean_name = unquote(filename)
+    filepath = os.path.join(SOURCE_DIR, clean_name)
     if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="Document not found")
-    return FileResponse(filepath, media_type="application/pdf", filename=filename)
+        raise HTTPException(status_code=404, detail=f"Document file '{clean_name}' not found")
+    return FileResponse(filepath, media_type="application/pdf", filename=clean_name)
 
 @app.get("/api/documents/{filename}/file")
 def get_document_file(filename: str):
-    filepath = os.path.join(SOURCE_DIR, filename)
+    clean_name = unquote(filename)
+    filepath = os.path.join(SOURCE_DIR, clean_name)
     if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="Document file not found")
-    return FileResponse(filepath, media_type="application/pdf", filename=filename)
+        raise HTTPException(status_code=404, detail=f"Document file '{clean_name}' not found")
+    return FileResponse(filepath, media_type="application/pdf", filename=clean_name)
+
+@app.get("/api/documents/{filename}")
+def get_document_by_name(filename: str):
+    clean_name = unquote(filename)
+    filepath = os.path.join(SOURCE_DIR, clean_name)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return FileResponse(filepath, media_type="application/pdf", filename=clean_name)
+
 
 
 

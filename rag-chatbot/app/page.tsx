@@ -259,9 +259,10 @@ export default function Page() {
       const pageMatch = parts[1].match(/\d+/)
       if (pageMatch) pageNum = `#page=${pageMatch[0]}`
     }
-    const fileUrl = `${API_BASE}/api/documents/${encodeURIComponent(fileName)}/file${pageNum}`
+    const fileUrl = `${API_BASE}/api/view-file/${encodeURIComponent(fileName)}${pageNum}`
     window.open(fileUrl, '_blank')
   }
+
 
   // Submit Prompt & Upload Attached Files
 
