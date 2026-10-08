@@ -1,4 +1,4 @@
-# Cortex RAG Assistant 🚀
+# Cortex RAG Assistant 
 
 A high-performance **Hybrid Retrieval-Augmented Generation (RAG)** Document Intelligence Platform with a sleek **Gemini-style Next.js (React)** frontend and **FastAPI** backend. Combines dense vector retrieval (ChromaDB), sparse keyword search (BM25Okapi), Reciprocal Rank Fusion (RRF 20+20 → 15), Cross-Encoder reranking (`ms-marco-MiniLM-L-6-v2` → top 4), and structured context generation with page-level citations.
 
