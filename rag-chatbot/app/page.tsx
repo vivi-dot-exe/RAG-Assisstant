@@ -1,6 +1,10 @@
 'use client'
 
 import { useState, useEffect, useRef, ChangeEvent } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import { Button } from '@/components/ui/button'
 import {
   ArrowUp,
@@ -23,7 +27,10 @@ import {
   MessageSquare,
   HardDrive,
   FolderUp,
+  Copy,
+  Check,
 } from 'lucide-react'
+
 
 type MessageAttachment = {
   name: string
@@ -285,7 +292,16 @@ export default function Page() {
     window.open(fileUrl, '_blank')
   }
 
+  // Copy text helper
+  const [copiedId, setCopiedId] = useState<string | number | null>(null)
+  const handleCopyMessage = (content: string, id: string | number) => {
+    navigator.clipboard.writeText(content)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
   // Submit Prompt & Upload Attached Files
+
   async function submitPrompt() {
     const trimmed = prompt.trim()
     if ((!trimmed && attachedFiles.length === 0) || isRetrieving) return
@@ -629,24 +645,65 @@ export default function Page() {
                         ))}
                       </div>
                     )}
-
-                    <p className="whitespace-pre-wrap">{message.content}</p>
-
-                    {message.sources && message.sources.length > 0 && (
-                      <div className="source-list flex flex-wrap gap-2 mt-3 pt-2 border-t border-purple-200/20" aria-label="Response sources">
-                        {message.sources.map((source, sIdx) => (
-                          <button
-                            key={`${message.id}-${sIdx}`}
-                            type="button"
-                            onClick={() => handleOpenDocument(source)}
-                            className="source-chip inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-purple-200 transition-colors cursor-pointer"
-                            title="Click to open PDF"
-                          >
-                            <FileText className="h-3 w-3 text-purple-400" /> {source}
-                          </button>
-                        ))}
+                    {message.role === 'user' ? (
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+                    ) : (
+                      <div className="markdown-body">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkMath]}
+                          rehypePlugins={[rehypeKatex]}
+                          components={{
+                            table: ({ node, ...props }) => (
+                              <div className="markdown-table-wrapper">
+                                <table {...props} />
+                              </div>
+                            ),
+                          }}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
                       </div>
                     )}
+
+
+                    {/* Copy Text Action Bar & Sources */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-2 border-t border-white/10 text-xs">
+                      {message.sources && message.sources.length > 0 ? (
+                        <div className="source-list flex flex-wrap gap-2 flex-1" aria-label="Response sources">
+                          {message.sources.map((source, sIdx) => (
+                            <button
+                              key={`${message.id}-${sIdx}`}
+                              type="button"
+                              onClick={() => handleOpenDocument(source)}
+                              className="source-chip inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-purple-200 transition-colors cursor-pointer"
+                              title="Click to open PDF"
+                            >
+                              <FileText className="h-3 w-3 text-purple-400" /> {source}
+                            </button>
+                          ))}
+                        </div>
+                      ) : <div />}
+
+                      <button
+                        type="button"
+                        onClick={() => handleCopyMessage(message.content, message.id)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 text-zinc-300 hover:text-white transition-colors text-[11px] font-medium border border-white/10 shrink-0 cursor-pointer ml-auto"
+                        title="Copy text to clipboard"
+                      >
+                        {copiedId === message.id ? (
+                          <>
+                            <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            <span className="text-emerald-400 font-semibold">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3.5 w-3.5" />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
 
                   </div>
                 </article>
